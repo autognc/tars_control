@@ -99,7 +99,7 @@ namespace tucker_polynomials {
 
 	    if (t != 0) {
 	        for (size_t i = 0; i < m-1; i++) {
-	            *result = *result + coeff_(i+1)*pow(t, i) / factorial(i);
+	            *result = *result + (1/alpha)*coeff_(i+1)*pow(t, i) / factorial(i);
 	        }
 	    } else {
 	        *result = coeff_(1);
@@ -205,7 +205,19 @@ namespace tucker_polynomials {
     		{
     			return segments_poly_[i].PolyDiffAtTime(time);
     		}
+    		// else
+    		// {
+    		// 	std::cout<<"time: "<<time<<std::endl;
+    		// 	std::cout<<"issue"<<std::endl;
+    		// 	return Eigen::Vector2d::Zero();
+    		// }
     	}
+    	if(time>segments_poly_[n_segments_-1].tf_)
+		{
+			// std::cout<<"time: "<<time<<std::endl;
+			// std::cout<<"issue"<<std::endl;
+			return Eigen::Vector2d::Zero();
+		}
     }
 
     void Trajectory2D::SampleTraj(const double &sampling_period,
