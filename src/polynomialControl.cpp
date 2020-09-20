@@ -1,17 +1,12 @@
 #include <ros/ros.h>
 #include <stdio.h>
+#include <math.h>
 #include <geometry_msgs/Twist.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <geometry_msgs/Pose.h>
 #include <geometry_msgs/Pose2D.h>
-#include <geometry_msgs/Vector3.h>
 #include <tf/tf.h>
 #include <tf/transform_datatypes.h>
-// #include "vicon/Subject.h"
-// #include "vicon/Markers.h"
-// #include "vicon/SetPose.h"
-#include <math.h>
-#include <std_msgs/Int16MultiArray.h>
 #include <actionlib/server/simple_action_server.h>
 #include <mg_msgs/follow_PolyPVA_XY_trajectoryAction.h>
 #include "polynomials.h"
@@ -21,7 +16,7 @@
 
 #define pi 3.14159265
 
-// Suscriber/Publisher
+// Suscriber(s)/Publisher(s)
 ros::Subscriber vicon_sub;
 ros::Publisher ref_pub;
 ros::Publisher wheelSpeeds_pub;
@@ -35,14 +30,11 @@ double dXc,dYc,dthetaC,wheel1,wheel2,wheel3, wheel1speed, wheel2speed, wheel3spe
 float rWheel = 0.04875;    // radius of wheel, m
 float D = 0.175;         // distance from CoM to wheel, m
 
-int count = 0;
-
 geometry_msgs::Twist speeds, roverspeeds;
 geometry_msgs::Pose2D reftraj;
 geometry_msgs::PoseStamped viconFeedback;
 
-ros::Time last_received, timeNow, LastWrite, startTime;
-// ros::Duration loopTime = ros::Duration(1.75*Period);
+ros::Time timeNow, startTime;
 
 using namespace tucker_polynomials;
 Trajectory2D trajectory;
@@ -173,7 +165,7 @@ uint8_t set_baudrate ( uint8_t desired_baudrate, uint8_t address ) {
 
 
 /***********************************************************************************************/
-/* START MY FUNCTIONS */
+/* START TARS FUNCTIONS */
 /***********************************************************************************************/
 
 
@@ -188,23 +180,18 @@ double Yt(double time)
 {
   Eigen::Vector2d test = trajectory.TrajAtTime(time);
   return test(1);
-  //return radius*sin(time*rad);
 }
 
 double dXt(double time)
 {
   Eigen::Vector2d test = trajectory.TrajDiffAtTime(time);
   return test(0);
-  // return sin(time);
-  //return -rad*radius*sin(time*rad);
 }
 
 double dYt(double time)
 {
   Eigen::Vector2d test = trajectory.TrajDiffAtTime(time);
   return test(1);
-  // return 0;
-  //return rad*radius*cos(time*rad);
 }
 
 
@@ -228,14 +215,9 @@ double dThetat(double time)
 
 void viconCallback(geometry_msgs::TransformStamped rover)
 {
-    last_received = ros::Time::now();
-
     x = rover.transform.translation.x;
     y = rover.transform.translation.y;
-    // x = rover.position.x;
-    // y = rover.position.y;
-
-    // tf::Quaternion q(rover.orientation.x,rover.orientation.y,rover.orientation.z,rover.orientation.w);
+    
     tf::Quaternion q(rover.transform.rotation.x,rover.transform.rotation.y,rover.transform.rotation.z,rover.transform.rotation.w);
 
     tf::Matrix3x3 m(q);
@@ -254,7 +236,6 @@ void viconCallback(geometry_msgs::TransformStamped rover)
     viconFeedback.pose.orientation = rover.transform.rotation;
 
     viconFeedback_pub.publish(viconFeedback);
-    // std::cout<<"theta:  "<<theta<<std::endl;
 }
 
 
@@ -319,21 +300,6 @@ void executeCB(const mg_msgs::follow_PolyPVA_XY_trajectoryGoalConstPtr &goal, Se
     trajectory.InitTraj(goal->X,goal->Y);
     ROS_INFO("Initial Time t0: %f", goal->X[0].t0);
     ROS_INFO("Final Time tf: %f", trajectory.tf_);
-
-   //  std::cout<<"X[0] polynomial: "<<goal->X[0]<<std::endl;
-   //  std::cout<<"Y[0] polynomial: "<<goal->Y[0]<<std::endl<<std::endl;
-
-   //  std::cout<<"X[1] polynomial: "<<goal->X[1]<<std::endl;
-   //  std::cout<<"Y[1] polynomial: "<<goal->Y[1]<<std::endl<<std::endl;
-
-    // std::cout<<"X[2] polynomial: "<<goal->X[2]<<std::endl;
-   //  std::cout<<"Y[2] polynomial: "<<goal->Y[2]<<std::endl<<std::endl;
-
-    // std::cout<<"X[3] polynomial: "<<goal->X[3]<<std::endl;
-    // std::cout<<"Y[3] polynomial: "<<goal->Y[3]<<std::endl<<std::endl;
-
-    // int size_array = sizeof(goal->X);
-    // std::cout<<size_array<<std::endl;
 
     int freq = 100;
     ros::Rate loop_rate(freq);
@@ -585,6 +551,7 @@ void executeCB(const mg_msgs::follow_PolyPVA_XY_trajectoryGoalConstPtr &goal, Se
         as->publishFeedback(feedback);
         loop_rate.sleep();
 
+        //Publish necessary topics
         ref_pub.publish(reftraj);
         wheelSpeeds_pub.publish(speeds);
         roverSpeeds_pub.publish(roverspeeds);

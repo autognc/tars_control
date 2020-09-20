@@ -1,19 +1,9 @@
 #include <ros/ros.h>
-#include <geometry_msgs/Twist.h>
-#include <geometry_msgs/Pose.h>
-#include <geometry_msgs/PoseStamped.h>
-#include <geometry_msgs/Pose2D.h>
 #include <stdio.h>
-#include <tf/tf.h>
 #include <math.h>
-#include <std_msgs/Int16MultiArray.h>
 
 #include <serial/serial.h>
 #include "sabertooth_2x25_driver.h"
-
-#include "vicon/Subject.h"
-
-#define pi 3.14159265
 
 
 serial::Serial *ser;
@@ -144,7 +134,7 @@ uint8_t set_baudrate ( uint8_t desired_baudrate, uint8_t address ) {
 
 
 /***********************************************************************************************/
-/* START MY FUNCTIONS */
+/* START TARS FUNCTIONS */
 /***********************************************************************************************/
 
 
@@ -156,7 +146,6 @@ int main(int argc, char** argv)
     int freq = 100;
     ros::Rate loop_rate(freq);
 
-
     ser = new serial::Serial();
     ser->setPort("/dev/ttyS0");
     ser->open();
@@ -164,26 +153,17 @@ int main(int argc, char** argv)
 
     set_baudrate(2,128);
     set_baudrate(2,129);
-    // std::cout<<"Start"<<std::endl;
 
-
+    ROS_INFO("Stopping Tars");
     while(ros::ok()) {
-
         ser->flush();
-
         control_motors_sep(6,64,7,64,128);
         control_motors_sep(6,64,7,64,129);
-
         break;
 
-        
-
-        //Publish necessary topics
         ros::spinOnce();
         loop_rate.sleep();
         ser->flush();
-
-        
     }
 loop_rate.sleep();
 control_motors_sep(6,64,7,64,128);

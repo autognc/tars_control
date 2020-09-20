@@ -1,50 +1,48 @@
 #include <ros/ros.h>
-#include <geometry_msgs/Twist.h>
-#include <geometry_msgs/Pose.h>
-#include <geometry_msgs/PoseStamped.h>
-#include <geometry_msgs/Pose2D.h>
 #include <stdio.h>
-#include <tf/tf.h>
 #include <math.h>
-#include <std_msgs/Int16MultiArray.h>
+#include <geometry_msgs/Pose.h>
+#include <geometry_msgs/Pose2D.h>
+#include <geometry_msgs/PoseStamped.h>
+#include <geometry_msgs/TransformStamped.h>
+#include <tf/tf.h>
 
 #include <serial/serial.h>
 #include "sabertooth_2x25_driver.h"
 
-#include "vicon/Subject.h"
-
 #define pi 3.14159265
 
 
-//Aspects of desired circular path
+// Aspects of desired circular path
 float radius = 1.5, Period = 20;
 float thetadot = 2*pi/Period;
 
 // Suscriber/Publisher
 ros::Subscriber vicon_sub;
 ros::Publisher ref_pub;
-ros::Publisher wheelSpeeds_pub;
-ros::Publisher callback_pub;
+ros::Publisher viconFeedback_pub;
 
-
+// Set initial position/orientation
 double x = 1.5, y = 0, theta = 0;
+// Variables for speeds
 double dXc,dYc,dthetaC,wheel1,wheel2,wheel3, wheel1speed, wheel2speed, wheel3speed;
 
 // Set radius of wheel and distance from CoM to wheel in meters
 float rWheel = 0.04875;    // radius of wheel, m
 float D = 0.175;         // distance from CoM to wheel, m
 
+// geometry_msgs
 geometry_msgs::Pose2D reftraj;
-ros::Time last_received, timeNow, LastWrite, startTime;
+geometry_msgs::PoseStamped viconFeedback;
 
-geometry_msgs::Twist speeds;
-geometry_msgs::Pose2D callback_data;
+// Time
+ros::Time timeNow, startTime;
+ros::Duration loopTime = ros::Duration(1.75*Period);
 
-
+// Prepare serial
 serial::Serial *ser;
 
 
-ros::Duration loopTime = ros::Duration(1.75*Period);
 
 
 /***********************************************************************************************/
@@ -172,7 +170,7 @@ uint8_t set_baudrate ( uint8_t desired_baudrate, uint8_t address ) {
 
 
 /***********************************************************************************************/
-/* START MY FUNCTIONS */
+/* START TARS FUNCTIONS */
 /***********************************************************************************************/
 
 
@@ -246,14 +244,13 @@ double dThetat(double time)
 
 
 
-void viconCallback(vicon::Subject rover)
+void viconCallback(geometry_msgs::TransformStamped rover)
 {
-    last_received = ros::Time::now();
+    x = rover.transform.translation.x;
+    y = rover.transform.translation.y;
+   
+    tf::Quaternion q(rover.transform.rotation.x,rover.transform.rotation.y,rover.transform.rotation.z,rover.transform.rotation.w);
 
-    x = rover.position.x;
-    y = rover.position.y;
-
-    tf::Quaternion q(rover.orientation.x,rover.orientation.y,rover.orientation.z,rover.orientation.w);
     tf::Matrix3x3 m(q);
     double roll,pitch,yaw;
     m.getRPY(roll,pitch,yaw);
@@ -261,19 +258,25 @@ void viconCallback(vicon::Subject rover)
     theta = yaw;
     theta += pi;
 
-    callback_data.x = x;
-    callback_data.y = y;
-    callback_data.theta = theta;
+    viconFeedback.header = rover.header;
+
+    viconFeedback.pose.position.x = x;
+    viconFeedback.pose.position.y = y;
+    viconFeedback.pose.position.z = rover.transform.translation.z;
+
+    viconFeedback.pose.orientation = rover.transform.rotation;
+
+    viconFeedback_pub.publish(viconFeedback);
 }
 
 
 // Function to calculate motor controller wheel speed inputs given input wheel velocity from kinematics model
 int speedCalc(float wheel_velocity, int wheelNumber)
 {
-
     float omega;
     float RPM;
     float speed;
+    int maxRPM = 85;
 
     // Calculate angular rate of wheel in rad/s
     omega = wheel_velocity/rWheel;
@@ -286,23 +289,23 @@ int speedCalc(float wheel_velocity, int wheelNumber)
         RPM = -RPM;
 
     // Calculate speed based on RPM and motor capability (max RPM of 104)
-    if ((RPM > -104) && (RPM < 0))
+    if ((RPM > -maxRPM) && (RPM < 0))
     {
-        speed = 63*(RPM+104)/104 + 1;
+        speed = 63*(RPM+maxRPM)/maxRPM + 1;
     }
-    if ((RPM > 0) && (RPM < 104))
+    if ((RPM > 0) && (RPM < maxRPM))
     {
-        speed = 63*RPM/104 + 64;
+        speed = 63*RPM/maxRPM + 64;
     }
     if (RPM == 0)
     {
         speed = 64;
     }
-    if (RPM >= 104)
+    if (RPM >= maxRPM)
     {
         speed = 127;
     }
-    if (RPM <= -104)
+    if (RPM <= -maxRPM)
     {
         speed = 1;
     }
@@ -327,20 +330,16 @@ int main(int argc, char** argv)
 
     startTime = ros::Time::now();
     
-    //ref_pub = nh.advertise<geometry_msgs::PoseStamped>("/ref_traj",10);
-    ref_pub = nh.advertise<geometry_msgs::Pose2D>("/ref_traj",100);
-
     vicon_sub = nh.subscribe("/vicon/tars", 100, viconCallback);
 
-    wheelSpeeds_pub = nh.advertise<geometry_msgs::Twist>("/wheelSpeeds",10);
+    ref_pub = nh.advertise<geometry_msgs::Pose2D>("/ref_traj",100);
+    viconFeedback_pub = nh.advertise<geometry_msgs::PoseStamped>("/viconFeedback",10);
 
-    callback_pub = nh.advertise<geometry_msgs::Pose2D>("/callback_data",10);
 
     double ref_time;
     double ref_theta;
  
     double J11,J12,J13,J21,J22,J23,J31,J32,J33;
-    //reftraj.header.frame_id = "slam";
 
     // Initialize PID Control error variables
     double X_err, Y_err, Theta_err;
@@ -366,7 +365,6 @@ int main(int argc, char** argv)
 
     set_baudrate(2,128);
     set_baudrate(2,129);
-    // std::cout<<"Start"<<std::endl;
 
 
     while(ros::ok()) {
@@ -376,11 +374,6 @@ int main(int argc, char** argv)
         // Calculate reference time for trajectory calculation
         ref_time = timeNow.toSec() - startTime.toSec();
 
-        //Publish a reference trajectory to monitor on rviz --- PoseStamped version (How to deal with rotation via quaternions?)
-        //reftraj.pose.position.x = Xt(ref_time);
-        //reftraj.pose.position.y = Yt(ref_time);
-        //reftraj.pose.position.z = 0;
-        //reftraj.pose.orientation.......
 
         reftraj.x = Xt(ref_time);
         reftraj.y = Yt(ref_time);
@@ -479,16 +472,8 @@ int main(int argc, char** argv)
         dYc = dYt(ref_time) + Kp*Pyerr + Ki*Iyerr + Kd*Dyerr;
         dthetaC = dThetat(ref_time) + Kp_theta*Ptheta_err + Ki_theta*Itheta_err + Kd_theta*Dtheta_err;
 
-        // dXc = Kp*Pxerr + Ki*Ixerr + Kd*Dxerr;
-        // dYc = Kp*Pyerr + Ki*Iyerr + Kd*Dyerr;
-        // dthetaC = Kp*Ptheta_err + Ki*Itheta_err + Kd*Dtheta_err;
-
-        //Calculate wheel speeds with vanHaendel model
-        // dXc is the xdot, dYc is the ydot, dthetaC is the thetadot
-
         // Update rotation of body frame such that wheel speeds calculated appropriately throughout circular path
         // Must be in body frame, thus must use actual theta instead of reference
-        // nu = ref_theta;
         nu = theta;
 
         //Make the Jinv matrix
@@ -506,20 +491,16 @@ int main(int argc, char** argv)
         wheel2 = J21*dXc + J22*dYc + J23*dthetaC;       
         wheel3 = J31*dXc + J32*dYc + J33*dthetaC;      
 
-
         wheel1speed = speedCalc(wheel1, 1);
         wheel2speed = speedCalc(wheel2, 2);
         wheel3speed = speedCalc(wheel3, 3);
-
-
-        speeds.linear.x = wheel1speed;
-        speeds.linear.y = wheel2speed;
-        speeds.linear.z = wheel3speed;
-
-        speeds.angular.x = wheel1;
-        speeds.angular.y = wheel2;
-        speeds.angular.z = wheel3;
         
+        // if (ref_time > Period)
+        // {
+        //     wheel1speed = 64;
+        //     wheel2speed = 64;
+        //     wheel3speed = 64;
+        // }
         
         ser->flush();
         // Input speeds to motor controllers
@@ -529,39 +510,11 @@ int main(int argc, char** argv)
         // Motor Controller 2
         control_motors_sep(6,64,7,wheel1speed,129);
         // control_motors_sep(6,64,7,100,129);
-
-
-        // Shutdown program after specified time
-        
-        // if (ros::Time::now() - startTime >= loopTime)
-        // {
-        //     ser->flush();
-
-        //     control_motors_sep(6,64,7,64,128);
-        //     control_motors_sep(6,64,7,64,129);
-
-        //     break;
-        // }
-        
-
-
-        // Shutdown program after a rotation
-        
-        // if (ref_theta >= 1)
-        // {
-        //     ser->flush();
-
-        //     control_motors_sep(6,64,7,64,128);
-        //     control_motors_sep(6,64,7,64,129);
-
-        //     break;
-        // }
         
 
         //Publish necessary topics
         ref_pub.publish(reftraj);
-        wheelSpeeds_pub.publish(speeds);
-        callback_pub.publish(callback_data);
+        viconFeedback_pub.publish(viconFeedback);
         ros::spinOnce();
         loop_rate.sleep();
         ser->flush();
@@ -569,6 +522,7 @@ int main(int argc, char** argv)
         
     }
 loop_rate.sleep();
+ser->flush();
 control_motors_sep(6,64,7,64,128);
 control_motors_sep(6,64,7,64,129);
 ser->close();
