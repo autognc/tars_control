@@ -455,7 +455,6 @@ void executeCB(const mg_msgs::follow_PolyPVA_XY_trajectoryGoalConstPtr &goal, Se
         // Set P, I, D values
         double Kp, Ki, Kd, Kp_theta, Ki_theta, Kd_theta;
 
-        // Kf = 0.35;
         Kp = 0.5;
         Ki = 0.05;
         Kd = 0;
@@ -530,12 +529,12 @@ int main(int argc, char** argv)
 
   // Subscribers
   vicon_sub = nh.subscribe("/vicon/tars/tars", 100, viconCallback);
-  // ORBSLAM_sub = nh.subscribe("", 100, ORBSLAMcallback)
+  ORBSLAM_sub = nh.subscribe("", 100, ORBSLAMcallback)
 
   // Publishers
   ref_pub = nh.advertise<geometry_msgs::Pose2D>("/ref_traj",10);
   viconFeedback_pub = nh.advertise<geometry_msgs::PoseStamped>("/viconFeedback",10);
-  // ORBSLAMfeedback_pub = nh.advertise<geometry_msgs::PoseStamped>("/ORBSLAMfeedback",10)
+  ORBSLAMfeedback_pub = nh.advertise<geometry_msgs::PoseStamped>("/ORBSLAMfeedback",10)
 
   ROS_INFO("Waiting for mission planner");
 
