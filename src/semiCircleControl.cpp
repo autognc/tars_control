@@ -501,11 +501,12 @@ int main(int argc, char** argv)
         J32 = cos(nu+alpha3);
         J33 = D;
 
+        // Calculate wheel speeds in m/s
         wheel1 = J11*dXc + J12*dYc + J13*dthetaC;       
         wheel2 = J21*dXc + J22*dYc + J23*dthetaC;       
         wheel3 = J31*dXc + J32*dYc + J33*dthetaC;      
 
-
+        // Determine associated motor controller speed number
         wheel1speed = speedCalc(wheel1, 1);
         wheel2speed = speedCalc(wheel2, 2);
         wheel3speed = speedCalc(wheel3, 3);

@@ -1,12 +1,14 @@
 #include <ros/ros.h>
 #include <stdio.h>
-#include <math.h>
 #include <geometry_msgs/Twist.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <geometry_msgs/Pose.h>
 #include <geometry_msgs/Pose2D.h>
+#include <geometry_msgs/Vector3.h>
 #include <tf/tf.h>
 #include <tf/transform_datatypes.h>
+#include <math.h>
+#include <std_msgs/Int16MultiArray.h>
 #include <actionlib/server/simple_action_server.h>
 #include <mg_msgs/follow_PolyPVA_XY_trajectoryAction.h>
 #include "polynomials.h"
@@ -16,29 +18,32 @@
 
 #define pi 3.14159265
 
-// Suscriber(s)/Publisher(s)
+// ROS Suscribers/Publishers
 ros::Subscriber vicon_sub;
+// ros::Subscriber ORBSLAM_sub;
+
 ros::Publisher ref_pub;
-ros::Publisher wheelSpeeds_pub;
 ros::Publisher viconFeedback_pub;
-ros::Publisher roverSpeeds_pub;
+ros::Publisher ORBSLAMfeedback_pub;
 
 double x, y, theta;
 double x_ref, y_ref, theta_ref;
 double dXc,dYc,dthetaC,wheel1,wheel2,wheel3, wheel1speed, wheel2speed, wheel3speed;
+
 // Set radius of wheel and distance from CoM to wheel in meters
 float rWheel = 0.04875;    // radius of wheel, m
 float D = 0.175;         // distance from CoM to wheel, m
 
-geometry_msgs::Twist speeds, roverspeeds;
 geometry_msgs::Pose2D reftraj;
 geometry_msgs::PoseStamped viconFeedback;
+geometry_msgs::PoseStamped ORBSLAMfeedback;
 
-ros::Time timeNow, startTime;
+ros::Time last_received, timeNow, startTime;
 
 using namespace tucker_polynomials;
 Trajectory2D trajectory;
 
+// Prepare serial
 serial::Serial *ser;
 
 typedef actionlib::SimpleActionServer<mg_msgs::follow_PolyPVA_XY_trajectoryAction> Server;
@@ -165,7 +170,7 @@ uint8_t set_baudrate ( uint8_t desired_baudrate, uint8_t address ) {
 
 
 /***********************************************************************************************/
-/* START TARS FUNCTIONS */
+/* START MY FUNCTIONS */
 /***********************************************************************************************/
 
 
@@ -199,7 +204,6 @@ double Thetat(double time)
 {
     float temp;
     temp = atan2(Yt(time),Xt(time));
-    // temp = theta;
 
     return temp;
 }
@@ -208,16 +212,21 @@ double dThetat(double time)
 {
     float temp;
     temp = 0;
-    // temp = 2*pi/time;
+
     return temp;
 }
 
 
 void viconCallback(geometry_msgs::TransformStamped rover)
 {
+    last_received = ros::Time::now();
+
     x = rover.transform.translation.x;
     y = rover.transform.translation.y;
-    
+    // x = rover.position.x;
+    // y = rover.position.y;
+
+    // tf::Quaternion q(rover.orientation.x,rover.orientation.y,rover.orientation.z,rover.orientation.w);
     tf::Quaternion q(rover.transform.rotation.x,rover.transform.rotation.y,rover.transform.rotation.z,rover.transform.rotation.w);
 
     tf::Matrix3x3 m(q);
@@ -236,6 +245,33 @@ void viconCallback(geometry_msgs::TransformStamped rover)
     viconFeedback.pose.orientation = rover.transform.rotation;
 
     viconFeedback_pub.publish(viconFeedback);
+}
+
+void ORBSLAMcallback(geometry_msgs::TransformStamped rover)
+{
+    last_received = ros::Time::now();
+
+    x = rover.transform.translation.x;
+    y = rover.transform.translation.y;
+    
+    tf::Quaternion q(rover.transform.rotation.x,rover.transform.rotation.y,rover.transform.rotation.z,rover.transform.rotation.w);
+
+    tf::Matrix3x3 m(q);
+    double roll,pitch,yaw;
+    m.getRPY(roll,pitch,yaw);
+    
+    theta = yaw;
+    theta += pi;
+
+    ORBSLAMfeedback.header = rover.header;
+
+    ORBSLAMfeedback.pose.position.x = x;
+    ORBSLAMfeedback.pose.position.y = y;
+    ORBSLAMfeedback.pose.position.z = rover.transform.translation.z;
+
+    ORBSLAMfeedback.pose.orientation = rover.transform.rotation;
+
+    ORBSLAMfeedback_pub.publish(ORBSLAMfeedback);
 }
 
 
@@ -278,16 +314,6 @@ int speedCalc(float wheel_velocity, int wheelNumber)
     {
         speed = 1;
     }
-
-    // Saturate Wheel Speeds
- //    if ((speed > 49) && (speed < 61)) { 
- //     speed = 49; 
- //     std::cout<<"Saturation"<<std::endl;
- //    }
- //    if ((speed < 79) && (speed > 67)) { 
- //     speed = 79;
- //     std::cout<<"Saturation"<<std::endl;
-    // }
 
     return speed;
 }
@@ -341,7 +367,6 @@ void executeCB(const mg_msgs::follow_PolyPVA_XY_trajectoryGoalConstPtr &goal, Se
         timeNow = ros::Time::now();
         // Calculate reference time for trajectory calculation
         ref_time = timeNow.toSec() - startTime.toSec();
-        // std::cout<<"ref time =  "<<ref_time<<std::endl;
 
         if (ref_time < trajectory.tf_)
         {
@@ -361,9 +386,7 @@ void executeCB(const mg_msgs::follow_PolyPVA_XY_trajectoryGoalConstPtr &goal, Se
         }
         reftraj.theta = ref_theta;
 
-        // std::cout<<"ref_theta from polynomials: "<<ref_theta<<std::endl;
-
-        //PID controller
+        // PID controller
         X_err = reftraj.x - x;
         Y_err = reftraj.y - y;
         Theta_err = ref_theta - theta;
@@ -431,15 +454,6 @@ void executeCB(const mg_msgs::follow_PolyPVA_XY_trajectoryGoalConstPtr &goal, Se
 
         // Set P, I, D values
         double Kp, Ki, Kd, Kp_theta, Ki_theta, Kd_theta;
-        // double Kf;
-        // float Kf;
-
-        // Kp = 1.75;
-        // Ki = 0;
-        // Kd = 0.5;
-        // Kp_theta = 6;
-        // Ki_theta = 0.75;
-        // Kd_theta = 1.0;
 
         // Kf = 0.35;
         Kp = 0.5;
@@ -449,31 +463,10 @@ void executeCB(const mg_msgs::follow_PolyPVA_XY_trajectoryGoalConstPtr &goal, Se
         Ki_theta = 0.75;
         Kd_theta = 1.0;
 
-        // Kf = 0.5;
-        // Kf_theta = 0.5;
-
-
         //Calculate robot speed with PID feedback
         dXc = dXt(ref_time) + Kp*Pxerr + Ki*Ixerr + Kd*Dxerr;
         dYc = dYt(ref_time) + Kp*Pyerr + Ki*Iyerr + Kd*Dyerr;
         dthetaC = dThetat(ref_time) + Kp_theta*Ptheta_err + Ki_theta*Itheta_err + Kd_theta*Dtheta_err;
-        
-        // Vx = dXt(ref_time);
-        // Vy = dYt(ref_time);
-        // Vtheta = dThetat(ref_time);
-        // dXc = Kf*Vx + Kp*Pxerr + Ki*Ixerr + Kd*Dxerr;
-        // dYc = Kf*Vy + Kp*Pyerr + Ki*Iyerr + Kd*Dyerr;
-        // dthetaC = Kf*Vtheta + Kp_theta*Ptheta_err + Ki_theta*Itheta_err + Kd_theta*Dtheta_err;
-        
-        roverspeeds.linear.x = dXc;
-        roverspeeds.linear.y = dYc;
-        roverspeeds.linear.z = dthetaC;
-        // dXc = Kp*Pxerr + Ki*Ixerr + Kd*Dxerr;
-        // dYc = Kp*Pyerr + Ki*Iyerr + Kd*Dyerr;
-        // dthetaC = Kp_theta*Ptheta_err + Ki_theta*Itheta_err + Kd_theta*Dtheta_err;
-        // std::cout<<"dXc: "<<dXc<<"  ref_x: "<<reftraj.x<<std::endl;
-        // std::cout<<"dYc: "<<dYc<<"  ref_y: "<<reftraj.y<<std::endl<<std::endl;
-        // std::cout<<"dthetaC: "<<dthetaC<<std::endl;
 
         // Set rotation of body frame to current angular position
         nu = theta;
@@ -493,19 +486,11 @@ void executeCB(const mg_msgs::follow_PolyPVA_XY_trajectoryGoalConstPtr &goal, Se
         wheel2 = J21*dXc + J22*dYc + J23*dthetaC;       
         wheel3 = J31*dXc + J32*dYc + J33*dthetaC;      
 
-
         wheel1speed = speedCalc(wheel1, 1);
         wheel2speed = speedCalc(wheel2, 2);
         wheel3speed = speedCalc(wheel3, 3);
 
-        // wheel speed publisher
-        speeds.linear.x = wheel1speed;
-        speeds.linear.y = wheel2speed;
-        speeds.linear.z = wheel3speed;
-        speeds.angular.x = wheel1;
-        speeds.angular.y = wheel2;
-        speeds.angular.z = wheel3;
-
+        // Stop motion when time exceeds trajectory final time
         if (ref_time > trajectory.tf_)
         {
             wheel1speed = 64;
@@ -521,29 +506,6 @@ void executeCB(const mg_msgs::follow_PolyPVA_XY_trajectoryGoalConstPtr &goal, Se
         // Motor Controller 2
         control_motors_sep(6,64,7,wheel1speed,129);
 
-        // Motor Controller 1
-     //    if (ref_time < 3.75) {
-        //     control_motors_sep(6,wheel3speed,7,wheel2speed,128);
-        //     // Motor Controller 2
-        //     control_motors_sep(6,64,7,wheel1speed,129);
-        //     count+=1;
-        //     std::cout<<"count: "<<count<<std::endl;
-        // }
-        // else {
-        //  control_motors_sep(6,64,7,64,128);
-        //  control_motors_sep(6,64,7,64,129);
-        // }
-        
-  //        control_motors_sep(16,15, 16, 15, 128);
-        // control_motors_sep(16, 15, 16, 15, 129);
-
-        // if(ref_time > 3.75)
-        // {
-        // // Motor Controller 1
-  //       control_motors_sep(6,64,7,64,128);
-  //       // Motor Controller 2
-  //       control_motors_sep(6,64,7,64,129);
-        // }
 
         feedback.currentState.Pos.x = x;
         feedback.currentState.Pos.y = y;
@@ -551,10 +513,7 @@ void executeCB(const mg_msgs::follow_PolyPVA_XY_trajectoryGoalConstPtr &goal, Se
         as->publishFeedback(feedback);
         loop_rate.sleep();
 
-        //Publish necessary topics
         ref_pub.publish(reftraj);
-        wheelSpeeds_pub.publish(speeds);
-        roverSpeeds_pub.publish(roverspeeds);
     }
   as->setSucceeded();
 }
@@ -569,11 +528,14 @@ int main(int argc, char** argv)
   Server as(nh, "Tars", boost::bind(&executeCB, _1, &as), false);
   as.start();
 
+  // Subscribers
   vicon_sub = nh.subscribe("/vicon/tars/tars", 100, viconCallback);
+  // ORBSLAM_sub = nh.subscribe("", 100, ORBSLAMcallback)
+
+  // Publishers
   ref_pub = nh.advertise<geometry_msgs::Pose2D>("/ref_traj",10);
-  wheelSpeeds_pub = nh.advertise<geometry_msgs::Twist>("/wheelSpeeds",10);
   viconFeedback_pub = nh.advertise<geometry_msgs::PoseStamped>("/viconFeedback",10);
-  roverSpeeds_pub = nh.advertise<geometry_msgs::Twist>("roverSpeeds",10);
+  // ORBSLAMfeedback_pub = nh.advertise<geometry_msgs::PoseStamped>("/ORBSLAMfeedback",10)
 
   ROS_INFO("Waiting for mission planner");
 

@@ -55,15 +55,10 @@ add_executable(polynomialControl src/polynomialControl.cpp src/polynomials.cpp)
 target_link_libraries(polynomialControl serial ${catkin_LIBRARIES})
 
 
-
-add_executable(testPolyControl src/test_poly_control.cpp src/helper.cpp)
-target_link_libraries(testPolyControl ${catkin_LIBRARIES})
-
-add_dependencies(
-	polynomialControl
-	testPolyControl
-	${tars_control_EXPORTED_TARGETS}
-)
+#add_dependencies(
+#	polynomialControl
+#	${tars_control_EXPORTED_TARGETS}
+#)
 
 
 

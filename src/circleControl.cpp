@@ -374,7 +374,7 @@ int main(int argc, char** argv)
         // Calculate reference time for trajectory calculation
         ref_time = timeNow.toSec() - startTime.toSec();
 
-
+        // Define reference trajectory
         reftraj.x = Xt(ref_time);
         reftraj.y = Yt(ref_time);
 
@@ -517,9 +517,7 @@ int main(int argc, char** argv)
         viconFeedback_pub.publish(viconFeedback);
         ros::spinOnce();
         loop_rate.sleep();
-        ser->flush();
-
-        
+        ser->flush();   
     }
 loop_rate.sleep();
 ser->flush();
